@@ -3452,6 +3452,10 @@ _FAIL_MARKERS = ("[edit failed", "[tool error", "[not found", "[web_search error
                  # 越界路径拒绝此前不计入,升级阶梯永不触发,模型换着路径无限重试)
                  "[安全门拦截", "[安全垫", "[安全门:", "[子agent安全门拦截", "[覆盖防护")
 _TASK_HINTS = ("写","建","改","创建","修改","删","删除","运行","执行","实现","编写","重构","修复",
+               # 葡萄牙语祈使动词(v3.1.12):缺失时"Crie um arquivo..."不命中任何任务词,
+               # 且若文件名含问候词(如 hello.py)会被误判为寒暄 → 问答守护拦截写文件
+               "crie","rode","execute","escreva","corrija","altere","adicione","remova",
+               "faça","gere","conserte","modifique","renomeie","mova",
                "生成","统计","翻译","总结","对比","测试","调试","安装","下载","部署","搭建","配置",
                "启动","停止","整理","转换","爬取","优化","检查","分析","设计","代码","程序","脚本","帮我做",
                # English imperative/task verbs (benchmark + international users)
