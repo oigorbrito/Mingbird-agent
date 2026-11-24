@@ -3755,6 +3755,17 @@ def try_parse_tool_calls(content):
           多块泄漏在本地 288 格未观测到,不扩展)。
     返回 [(name, args), ...] 或 None。"""
     c = content.strip()
+    # Qwen XML 形态(v3.1.12):服务端不解析时,调用以文本留在 content 里:
+    # <tool_call><function=NAME><parameter=KEY>VALUE</parameter>...</function></tool_call>
+    # 实测:Qwen3.5-4B 经 llama-cpp-python 服务时正是这种形态,调用本身是正确的。
+    if "<function=" in c:
+        _xml = []
+        for _fm in re.finditer(r"<function=([^>\s]+)>(.*?)</function>", c, re.S):
+            _args = {_pm.group(1).strip(): _pm.group(2).strip()
+                     for _pm in re.finditer(r"<parameter=([^>\s]+)>(.*?)</parameter>", _fm.group(2), re.S)}
+            _xml.append((_fm.group(1).strip(), _args))
+        if _xml:
+            return _xml
     if not c.startswith(("{", "[")):
         if "<tool_call>" in c:
             _t = re.search(r"<tool_call>\s*(.*?)\s*</tool_call>", c, re.S)
