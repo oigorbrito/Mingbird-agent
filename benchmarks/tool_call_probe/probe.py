@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import statistics
 import sys
 import time
@@ -79,6 +80,19 @@ TYPE_MAP = {"string": str, "number": (int, float), "boolean": bool, "array": lis
 API_MODE = "ollama"  # "ollama" (/api/chat) or "openai" (/v1/chat/completions, e.g. llama-server)
 
 
+def parse_qwen_xml(content):
+    """Parse Qwen-style tool calls left as text:
+    <tool_call><function=NAME><parameter=KEY>VALUE</parameter>...</function></tool_call>.
+    Returns Ollama-shaped tool_calls, or [] if none are present."""
+    calls = []
+    for fm in re.finditer(r"<function=([^>\s]+)>(.*?)</function>", content, re.S):
+        args = {}
+        for pm in re.finditer(r"<parameter=([^>\s]+)>(.*?)</parameter>", fm.group(2), re.S):
+            args[pm.group(1).strip()] = pm.group(2).strip()
+        calls.append({"function": {"name": fm.group(1).strip(), "arguments": args}})
+    return calls
+
+
 def chat(host, model, prompt, num_ctx, timeout):
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": prompt}]
@@ -107,10 +121,18 @@ def chat(host, model, prompt, num_ctx, timeout):
         timings = data.get("timings") or {}
         n_tok = usage.get("completion_tokens") or 0
         pred_ms = timings.get("predicted_ms")
-        data = {"message": {"role": "assistant", "content": msg.get("content") or "",
-                            "tool_calls": msg.get("tool_calls") or []},
+        content = msg.get("content") or ""
+        tool_calls = msg.get("tool_calls") or []
+        source = "structured" if tool_calls else None
+        if not tool_calls:
+            # Qwen XML tool calls that the server left in the text (llama-cpp-python does
+            # not parse this format). Counted separately so the source is never hidden.
+            tool_calls = parse_qwen_xml(content)
+            source = "xml_text" if tool_calls else None
+        data = {"message": {"role": "assistant", "content": content, "tool_calls": tool_calls},
                 "eval_count": n_tok,
-                "eval_duration": int(pred_ms * 1e6) if pred_ms else None}
+                "eval_duration": int(pred_ms * 1e6) if pred_ms else None,
+                "_tool_source": source}
     data["_wall_s"] = wall
     return data
 
@@ -182,7 +204,7 @@ def run_model(host, model, runs, num_ctx, timeout):
                 ok, reason = check(task, resp)
                 tps, wall = speed(resp)
                 row.update(ok=ok, reason=reason, tokens_per_s=tps, wall_s=wall,
-                           raw=resp)
+                           source=resp.get("_tool_source"), raw=resp)
             except urllib.error.HTTPError as e:  # must precede URLError (subclass)
                 body = e.read().decode("utf-8", "replace")[:500]
                 row.update(ok=False, reason=f"http:{e.code}",
