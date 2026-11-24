@@ -2841,8 +2841,20 @@ def _call_openai_local(lb, model, messages, tools, stream, on_token, on_think):
       index 拼装(OpenAI 流式口径,参数字符串跨 delta 撕裂)。
     ollama 专属字段(keep_alive/num_ctx/think 三态)不适用,本路径一律不下发;
     上下文预算仍按 AGENT_CTX 在 harness 侧裁剪(与引擎无关)。"""
+    _msgs = _cloud_to_openai_messages(messages)
+    # 历史里的工具参数:标准是 JSON 字符串,但 llama.cpp 的 Qwen 模板按映射渲染
+    # (arguments|items),字符串会让服务端 500(实测 2026-11-24:TypeError: Can only
+    # get item pairs from a mapping)。这里把历史参数回成对象;字符串解析不了则原样保留。
+    for _m in _msgs:
+        for _tc in _m.get("tool_calls") or []:
+            _fn = _tc.get("function") or {}
+            if isinstance(_fn.get("arguments"), str):
+                try:
+                    _fn["arguments"] = json.loads(_fn["arguments"]) if _fn["arguments"].strip() else {}
+                except Exception:
+                    pass
     req = {"model": model,
-           "messages": _cloud_to_openai_messages(messages),
+           "messages": _msgs,
            "stream": bool(stream)}
     if NUM_PREDICT and NUM_PREDICT > 0:
         req["max_tokens"] = NUM_PREDICT       # -1=不限:省略字段用服务端默认
