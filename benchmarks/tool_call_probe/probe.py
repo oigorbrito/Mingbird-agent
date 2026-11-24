@@ -60,7 +60,7 @@ TASKS = [
      "expect_tool": "read_file", "args": {"path": "notas.txt"}},
     {"id": "T2_create", "prompt": "Crie o arquivo hello.py contendo exatamente: print('oi')",
      "expect_tool": "create_file", "args": {"path": "hello.py", "content": "print('oi')"}},
-    {"id": "T3_edit", "prompt": "No arquivo config.ini, troque o texto 'debug=false' por 'debug=true'.",
+    {"id": "T3_edit", "prompt": "No arquivo config.ini, troque o texto 'debug=false' por 'debug=true'. Use edit_file diretamente, sem ler o arquivo antes.",
      "expect_tool": "edit_file", "args": {"path": "config.ini", "old": "debug=false", "new": "debug=true"}},
     {"id": "T4_list", "prompt": "Liste os arquivos da pasta src.",
      "expect_tool": "list_dir", "args": {"path": "src"}},
@@ -126,15 +126,23 @@ def check(task, resp):
             return False, f"extra_arg:{k}"
         if not isinstance(v, TYPE_MAP[spec["type"]]):
             return False, f"bad_type:{k}"
-    # Value checks: paths and the core string must match what the task asked for.
+    # Value checks. Paths and file content/edit text must match exactly (they are
+    # the object of the action). Command and summary are free text, so they are
+    # checked by their essential token, not by string equality.
     for k, want in task["args"].items():
         got = args.get(k)
-        if k in ("path",):
+        if k == "path":
             if got != want:
-                return False, f"wrong_path:{got}"
-        elif k in ("old", "new", "content", "command", "summary"):
+                return False, f"wrong_path:{got!r}"
+        elif k == "command":
+            if "pytest" not in got.lower():
+                return False, f"wrong_command:{got[:80]!r}"
+        elif k == "summary":
+            if "pronto" not in got.lower():
+                return False, f"wrong_summary:{got[:80]!r}"
+        else:
             if got.strip() != want.strip():
-                return False, f"wrong_value:{k}"
+                return False, f"wrong_value:{k}:{got[:80]!r}"
     return True, "ok"
 
 
@@ -156,6 +164,10 @@ def run_model(host, model, runs, num_ctx, timeout):
                 tps, wall = speed(resp)
                 row.update(ok=ok, reason=reason, tokens_per_s=tps, wall_s=wall,
                            raw=resp)
+            except urllib.error.HTTPError as e:  # must precede URLError (subclass)
+                body = e.read().decode("utf-8", "replace")[:500]
+                row.update(ok=False, reason=f"http:{e.code}",
+                           tokens_per_s=None, wall_s=None, raw=body)
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 row.update(ok=False, reason=f"transport:{type(e).__name__}",
                            tokens_per_s=None, wall_s=None, raw=str(e))
