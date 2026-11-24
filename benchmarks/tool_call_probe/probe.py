@@ -76,23 +76,42 @@ SYSTEM = ("Você é um agente que executa tarefas usando ferramentas. "
 TYPE_MAP = {"string": str, "number": (int, float), "boolean": bool, "array": list, "object": dict}
 
 
+API_MODE = "ollama"  # "ollama" (/api/chat) or "openai" (/v1/chat/completions, e.g. llama-server)
+
+
 def chat(host, model, prompt, num_ctx, timeout):
-    body = {
-        "model": model,
-        "messages": [{"role": "system", "content": SYSTEM},
-                     {"role": "user", "content": prompt}],
-        "tools": TOOLS,
-        "stream": False,
-        "think": False,
-        "options": {"temperature": 0, "num_ctx": num_ctx, "num_predict": 512},
-    }
-    req = urllib.request.Request(host.rstrip("/") + "/api/chat",
+    messages = [{"role": "system", "content": SYSTEM},
+                {"role": "user", "content": prompt}]
+    if API_MODE == "openai":
+        # llama-server / any OpenAI-compatible server. Thinking off via the chat template kwarg.
+        body = {"model": model, "messages": messages, "tools": TOOLS, "stream": False,
+                "temperature": 0, "max_tokens": 512, "top_p": 1,
+                "chat_template_kwargs": {"enable_thinking": False}}
+        path = "/v1/chat/completions"
+    else:
+        body = {"model": model, "messages": messages, "tools": TOOLS, "stream": False,
+                "think": False, "options": {"temperature": 0, "num_ctx": num_ctx, "num_predict": 512}}
+        path = "/api/chat"
+    req = urllib.request.Request(host.rstrip("/") + path,
                                  data=json.dumps(body).encode("utf-8"),
                                  headers={"Content-Type": "application/json"})
     t0 = time.time()
     with urllib.request.urlopen(req, timeout=timeout) as r:
         data = json.loads(r.read().decode("utf-8"))
-    data["_wall_s"] = time.time() - t0
+    wall = time.time() - t0
+    if API_MODE == "openai":
+        # Normalise to the Ollama shape so check() and speed() are identical for both APIs.
+        choice = (data.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        usage = data.get("usage") or {}
+        timings = data.get("timings") or {}
+        n_tok = usage.get("completion_tokens") or 0
+        pred_ms = timings.get("predicted_ms")
+        data = {"message": {"role": "assistant", "content": msg.get("content") or "",
+                            "tool_calls": msg.get("tool_calls") or []},
+                "eval_count": n_tok,
+                "eval_duration": int(pred_ms * 1e6) if pred_ms else None}
+    data["_wall_s"] = wall
     return data
 
 
@@ -203,7 +222,11 @@ def main(argv=None):
     ap.add_argument("--num-ctx", type=int, default=8192)
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("--out", default="probe_results.json")
+    ap.add_argument("--api", choices=["ollama", "openai"], default="ollama",
+                    help="ollama = /api/chat (Ollama); openai = /v1/chat/completions (llama-server)")
     a = ap.parse_args(argv)
+    global API_MODE
+    API_MODE = a.api
 
     all_rows, summary = [], {}
     for m in a.models:
