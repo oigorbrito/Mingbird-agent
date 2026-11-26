@@ -5,7 +5,9 @@ import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "projeto"))
+# Caminho do projeto a validar: variável PROJETO_DIR (recomendado) ou ../projeto ao lado deste arquivo.
+PROJETO = os.environ.get("PROJETO_DIR") or os.path.join(os.path.dirname(__file__), "..", "projeto")
+sys.path.insert(0, PROJETO)
 
 import catalogo  # noqa: E402
 from carrinho import Carrinho  # noqa: E402
