@@ -77,6 +77,24 @@ SYSTEM = ("Você é um agente que executa tarefas usando ferramentas. "
 TYPE_MAP = {"string": str, "number": (int, float), "boolean": bool, "array": list, "object": dict}
 
 
+def parse_json_text_call(content):
+    """A bare JSON object {"name": ..., "arguments": {...}} written as the message text."""
+    t = content.strip()
+    if t.startswith("```"):
+        t = t.strip("`").strip()
+        if t.lower().startswith("json"):
+            t = t[4:].strip()
+    if not t.startswith("{"):
+        return []
+    try:
+        obj = json.loads(t)
+    except json.JSONDecodeError:
+        return []
+    if isinstance(obj, dict) and "name" in obj and "arguments" in obj:
+        return [{"function": {"name": obj["name"], "arguments": obj["arguments"]}}]
+    return []
+
+
 API_MODE = "ollama"  # "ollama" (/api/chat) or "openai" (/v1/chat/completions, e.g. llama-server)
 
 
@@ -125,10 +143,11 @@ def chat(host, model, prompt, num_ctx, timeout):
         tool_calls = msg.get("tool_calls") or []
         source = "structured" if tool_calls else None
         if not tool_calls:
-            # Qwen XML tool calls that the server left in the text (llama-cpp-python does
-            # not parse this format). Counted separately so the source is never hidden.
-            tool_calls = parse_qwen_xml(content)
-            source = "xml_text" if tool_calls else None
+            # Tool calls left in the text (the server did not parse them). Same shapes the
+            # agent's fallback accepts: Qwen XML, and a bare {"name":..,"arguments":..} object.
+            # Counted separately so the source is never hidden.
+            tool_calls = parse_qwen_xml(content) or parse_json_text_call(content)
+            source = "text" if tool_calls else None
         data = {"message": {"role": "assistant", "content": content, "tool_calls": tool_calls},
                 "eval_count": n_tok,
                 "eval_duration": int(pred_ms * 1e6) if pred_ms else None,
