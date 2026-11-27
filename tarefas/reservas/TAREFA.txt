@@ -1,0 +1,1 @@
+Leia RULES.md. Corrija o codigo do projeto para que todos os testes em tests/ passem e para que o sistema siga todas as regras de RULES.md, inclusive as regras que os testes nao citam. Nao altere tests/ nem RULES.md. Dentro da pasta do projeto, rode python -m pytest -q tests e diga o resultado.
