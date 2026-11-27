@@ -152,6 +152,16 @@ def chat(host, model, prompt, num_ctx, timeout):
                 "eval_count": n_tok,
                 "eval_duration": int(pred_ms * 1e6) if pred_ms else None,
                 "_tool_source": source}
+    if API_MODE != "openai":
+        # Ollama path: same fallback as the OpenAI path, so both APIs read text calls alike.
+        msg = data.get("message") or {}
+        if not msg.get("tool_calls"):
+            content = msg.get("content") or ""
+            calls = parse_qwen_xml(content) or parse_json_text_call(content)
+            if calls:
+                msg["tool_calls"] = calls
+                data["message"] = msg
+                data["_tool_source"] = "text"
     data["_wall_s"] = wall
     return data
 
